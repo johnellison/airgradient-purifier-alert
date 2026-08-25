@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0e1714"><title>Air at home</title>
+  <link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">MY HOME</p><h1>Air at home</h1></div><span id="freshness" class="pill offline">Offline</span></header>
+    <section id="hero" class="hero unknown">
+      <p class="label">PM2.5 right now</p><div><strong id="pm25">—</strong><span>µg/m³</span></div>
+      <h2 id="alertMessage">Waiting for data</h2><p id="updated">No reading yet</p>
+    </section>
+    <section class="metrics" aria-label="Other measurements">
+      <article><span>CO₂</span><strong id="co2">—</strong><small>ppm</small></article>
+      <article><span>Temperature</span><strong id="temperature">—</strong><small>°C</small></article>
+      <article><span>Humidity</span><strong id="humidity">—</strong><small>%</small></article>
+      <article><span>TVOC</span><strong id="tvoc">—</strong><small>index / ppb</small></article>
+      <article><span>NOx</span><strong id="nox">—</strong><small>index</small></article>
+    </section>
+    <section class="card chart-card"><div class="section-title"><h2>Last 24 hours</h2><span id="chartRange"></span></div><svg id="chart" viewBox="0 0 640 190" role="img" aria-label="PM2.5 readings over the last 24 hours"></svg></section>
+    <section class="card settings"><div class="section-title"><div><p class="eyebrow">ALERTS</p><h2>Purifier reminder</h2></div><button id="settingsToggle" class="text-button">Settings</button></div>
+      <p id="notifyHelp">Enable notifications so this app can tell you when the air changes, even when it is not open.</p>
+      <div class="actions"><button id="enablePush">Enable notifications</button><button id="testNotification" class="secondary">Send a test</button></div>
+      <form id="settingsForm" hidden>
+        <label>Alert above <span><input name="alertThreshold" type="number" min="1" step="1" required> µg/m³</span></label>
+        <label>Clear below <span><input name="clearThreshold" type="number" min="0" step="1" required> µg/m³</span></label>
+        <label>Must stay high for <span><input name="durationMinutes" type="number" min="0" step="1" required> min</span></label>
+        <label>Notification channel <select name="channel"><option value="push">Web push</option><option value="email">Email</option></select></label>
+        <label>Email recipient <input name="recipient" type="email" placeholder="Optional for push"></label>
+        <div class="quiet"><label>Quiet hours start <input name="quietStart" type="time"></label><label>End <input name="quietEnd" type="time"></label></div>
+        <button type="submit">Save settings</button><p id="formStatus" role="status"></p>
+      </form>
+    </section>
+    <footer>Times shown in <span id="timezone">Asia/Makassar</span></footer>
+  </main><div id="toast" role="status" aria-live="polite"></div><script type="module" src="/app.js"></script>
+</body></html>

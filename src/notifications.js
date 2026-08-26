@@ -14,11 +14,11 @@ export async function notify({ event, reading, settings, store, env }) {
     return;
   }
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) throw new Error("Push notifications are not configured");
-  const subscriptions = store.subscriptions();
+  const subscriptions = await store.subscriptions();
   if (!subscriptions.length) throw new Error("Enable notifications on this device first");
   const results = await Promise.allSettled(subscriptions.map(async (subscription) => {
     try { await webpush.sendNotification(subscription, JSON.stringify({ title, body, url:"/" })); }
-    catch (error) { if (error.statusCode === 404 || error.statusCode === 410) store.removeSubscription(subscription.endpoint); else throw error; }
+    catch (error) { if (error.statusCode === 404 || error.statusCode === 410) await store.removeSubscription(subscription.endpoint); else throw error; }
   }));
   if (!results.some((result) => result.status === "fulfilled")) throw new Error("Push delivery failed");
 }

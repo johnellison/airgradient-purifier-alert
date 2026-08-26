@@ -1,29 +1,47 @@
-import Database from "better-sqlite3";
+import { BlobPreconditionFailedError, get, put } from "@vercel/blob";
 
-export function createStore(filename) {
-  const db = new Database(filename);
-  db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS readings (timestamp TEXT PRIMARY KEY, location_id TEXT NOT NULL, pm25 REAL, co2 REAL, temperature REAL, humidity REAL, tvoc REAL, nox REAL);
-    CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), alert_threshold REAL NOT NULL, clear_threshold REAL NOT NULL, duration_minutes INTEGER NOT NULL, channel TEXT NOT NULL, recipient TEXT, quiet_start TEXT, quiet_end TEXT);
-    CREATE TABLE IF NOT EXISTS alert_state (id INTEGER PRIMARY KEY CHECK(id=1), status TEXT NOT NULL, pending_since TEXT, changed_at TEXT, last_event_key TEXT);
-    CREATE TABLE IF NOT EXISTS subscriptions (endpoint TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at TEXT NOT NULL);
-    INSERT OR IGNORE INTO settings VALUES (1, 35, 25, 10, 'push', NULL, NULL, NULL);
-    INSERT OR IGNORE INTO alert_state VALUES (1, 'normal', NULL, NULL, NULL);
-  `);
-  const insertReading = db.prepare(`INSERT OR IGNORE INTO readings VALUES (@timestamp,@locationId,@pm25,@co2,@temperature,@humidity,@tvoc,@nox)`);
+const STATE_PATH = "airgradient/state.json";
+const defaults = () => ({
+  readings: [],
+  settings: { alertThreshold:35, clearThreshold:25, durationMinutes:10, channel:"push", recipient:null, quietStart:null, quietEnd:null },
+  alert: { status:"normal", pendingSince:null, changedAt:null, lastEventKey:null },
+  subscriptions: []
+});
+
+export function createStore() {
+  async function read() {
+    const result = await get(STATE_PATH, { access:"private", useCache:false });
+    if (!result) return { state:defaults(), etag:null };
+    return { state:await new Response(result.stream).json(), etag:result.blob.etag };
+  }
+  async function mutate(change) {
+    for (let attempt=0; attempt<6; attempt++) {
+      const {state,etag}=await read();
+      const next=await change(structuredClone(state));
+      try {
+        await put(STATE_PATH,JSON.stringify(next),{access:"private",contentType:"application/json",cacheControlMaxAge:60,...(etag?{allowOverwrite:true,ifMatch:etag}:{})});
+        return next;
+      } catch (error) {
+        if (!(error instanceof BlobPreconditionFailedError) && etag) throw error;
+        if (attempt===5) throw new Error("Persistent state was updated concurrently; retry ingestion");
+        await new Promise(resolve=>setTimeout(resolve,40*(attempt+1)));
+      }
+    }
+  }
   return {
-    saveReading: (r) => insertReading.run(r),
-    latest: () => db.prepare("SELECT timestamp, location_id locationId, pm25, co2, temperature, humidity, tvoc, nox FROM readings ORDER BY timestamp DESC LIMIT 1").get() ?? null,
-    history: (since) => db.prepare("SELECT timestamp, pm25 FROM readings WHERE timestamp >= ? ORDER BY timestamp").all(since),
-    settings: () => { const s=db.prepare("SELECT * FROM settings WHERE id=1").get(); return { alertThreshold:s.alert_threshold, clearThreshold:s.clear_threshold, durationMinutes:s.duration_minutes, channel:s.channel, recipient:s.recipient, quietStart:s.quiet_start, quietEnd:s.quiet_end }; },
-    updateSettings: (s) => db.prepare("UPDATE settings SET alert_threshold=?,clear_threshold=?,duration_minutes=?,channel=?,recipient=?,quiet_start=?,quiet_end=? WHERE id=1").run(s.alertThreshold,s.clearThreshold,s.durationMinutes,s.channel,s.recipient||null,s.quietStart||null,s.quietEnd||null),
-    alertState: () => { const s=db.prepare("SELECT * FROM alert_state WHERE id=1").get(); return { status:s.status,pendingSince:s.pending_since,changedAt:s.changed_at,lastEventKey:s.last_event_key }; },
-    updateAlertState: (s, eventKey=null) => db.prepare("UPDATE alert_state SET status=?,pending_since=?,changed_at=?,last_event_key=COALESCE(?,last_event_key) WHERE id=1").run(s.status,s.pendingSince,s.changedAt,eventKey),
-    eventSeen: (key) => db.prepare("SELECT 1 FROM alert_state WHERE id=1 AND last_event_key=?").get(key) != null,
-    saveSubscription: (sub) => db.prepare("INSERT OR REPLACE INTO subscriptions VALUES (?,?,?)").run(sub.endpoint,JSON.stringify(sub),new Date().toISOString()),
-    subscriptions: () => db.prepare("SELECT payload FROM subscriptions").all().map(x=>JSON.parse(x.payload)),
-    removeSubscription: (endpoint) => db.prepare("DELETE FROM subscriptions WHERE endpoint=?").run(endpoint),
-    close: () => db.close()
+    async initialize() { await mutate(state=>state); },
+    async acquireIngestionLock() { return async()=>{}; },
+    async saveReading(reading) { await mutate(state=>{ if(!state.readings.some(r=>r.timestamp===reading.timestamp)) state.readings.push(reading); const cutoff=Date.now()-48*60*60*1000; state.readings=state.readings.filter(r=>new Date(r.timestamp).getTime()>=cutoff).sort((a,b)=>a.timestamp.localeCompare(b.timestamp)); return state; }); },
+    async latest() { const {state}=await read(); return state.readings.at(-1)??null; },
+    async history(since) { const {state}=await read(); return state.readings.filter(r=>r.timestamp>=since).map(({timestamp,pm25})=>({timestamp,pm25})); },
+    async settings() { return (await read()).state.settings; },
+    async updateSettings(settings) { await mutate(state=>{state.settings={...state.settings,...settings};return state;}); },
+    async alertState() { return (await read()).state.alert; },
+    async updateAlertState(alert,eventKey=null) { await mutate(state=>{state.alert={...alert,lastEventKey:eventKey??state.alert.lastEventKey};return state;}); },
+    async eventSeen(key) { return (await read()).state.alert.lastEventKey===key; },
+    async saveSubscription(subscription) { await mutate(state=>{state.subscriptions=state.subscriptions.filter(s=>s.endpoint!==subscription.endpoint);state.subscriptions.push(subscription);return state;}); },
+    async subscriptions() { return (await read()).state.subscriptions; },
+    async removeSubscription(endpoint) { await mutate(state=>{state.subscriptions=state.subscriptions.filter(s=>s.endpoint!==endpoint);return state;}); },
+    async close() {}
   };
 }

@@ -12,7 +12,9 @@ export function createStore() {
   async function read() {
     const result = await get(STATE_PATH, { access:"private", useCache:false });
     if (!result) return { state:defaults(), etag:null };
-    return { state:await new Response(result.stream).json(), etag:result.blob.etag };
+    // Private Blob GET responses expose a weak ETag, while conditional PUT
+    // requires the equivalent strong ETag.
+    return { state:await new Response(result.stream).json(), etag:result.blob.etag.replace(/^W\//,"") };
   }
   async function mutate(change) {
     for (let attempt=0; attempt<6; attempt++) {

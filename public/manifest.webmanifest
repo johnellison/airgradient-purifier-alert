@@ -1,1 +1,1 @@
-{"name":"Air at home","short_name":"Air alert","start_url":"/","display":"standalone","background_color":"#0e1714","theme_color":"#0e1714","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{"name":"Personal air monitor","short_name":"Air monitor","start_url":"/","display":"standalone","background_color":"#0e1714","theme_color":"#0e1714","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
